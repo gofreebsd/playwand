@@ -71,7 +71,7 @@ var typemap = map[string][2]string{
 	"uint":   {"proto.Uint", "uint32"},
 	"string": {"proto.String", "string"},
 	"int":    {"proto.Int", "int32"},
-	"fd":     {"proto.Fd", "int"},
+	"fd":     {"proto.Fd", "uintptr"},
 	"fixed":  {"proto.Fixed", "float32"},
 	"array":  {"proto.Array", "[]byte"},
 }

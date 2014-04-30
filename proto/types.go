@@ -145,7 +145,7 @@ func (a Array) size() uint16 {
 	return l
 }
 
-type Fd int
+type Fd uintptr
 
 func (fd *Fd) readFrom(c *net.UnixConn) error {
 	var b []byte

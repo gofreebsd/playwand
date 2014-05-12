@@ -2,6 +2,8 @@ package proto
 
 import (
 	"encoding/binary"
+	"bytes"
+	"syscall"
 	"fmt"
 	"net"
 	"os"
@@ -48,26 +50,20 @@ func sockPath() string {
 }
 
 type Conn struct {
-	c       *net.UnixConn
-	objects map[ObjectId]Object
-	id      ObjectId
+	*net.UnixConn
 }
 
-func Dial() (*Conn, error) {
+func Dial() (Conn, error) {
 	return DialPath(sockPath())
 }
 
-func DialPath(path string) (c *Conn, err error) {
-	c = new(Conn)
-	c.c, err = net.DialUnix("unix", nil, &net.UnixAddr{Net: "unix", Name: path})
-	if err == nil {
-		c.objects = make(map[ObjectId]Object)
-	}
+func DialPath(path string) (c Conn, err error) {
+	c.UnixConn, err = net.DialUnix("unix", nil, &net.UnixAddr{Net: "unix", Name: path})
 	return
 }
 
 type Listener struct {
-	l *net.UnixListener
+	 *net.UnixListener
 }
 
 func Listen() (Listener, error) {
@@ -75,88 +71,62 @@ func Listen() (Listener, error) {
 }
 
 func ListenPath(path string) (l Listener, err error) {
-	l.l, err = net.ListenUnix("unix", &net.UnixAddr{Net: "unix", Name: path})
+	l.UnixListener, err = net.ListenUnix("unix", &net.UnixAddr{Net: "unix", Name: path})
 	return
 }
 
-func (l Listener) Accept() (c *Conn, err error) {
-	c = new(Conn)
-	c.c, err = l.l.AcceptUnix()
-	if err == nil {
-		c.objects = make(map[ObjectId]Object)
-	}
+func (l Listener) AcceptWayland() (c Conn, err error) {
+	c.UnixConn, err = l.AcceptUnix()
 	return
 }
 
-func (l Listener) Close() error {
-	return l.l.Close()
-}
-
-type Type interface {
-	size() uint16
-	writeTo(c *net.UnixConn) error
-	readFrom(c *net.UnixConn) error
-}
-
-func (c *Conn) readHeader() (h header, err error) {
-	err = binary.Read(c.c, ByteOrder, &h)
+func (c Conn) readHeader() (h header, err error) {
+	err = binary.Read(c, ByteOrder, &h)
 	return
 }
 
-func (c *Conn) writeHeader(o ObjectId, opcode, size uint16) error {
-	return binary.Write(c.c, ByteOrder, newHeader(o, opcode, size))
+func (c Conn) writeHeader(o ObjectId, opcode, size uint16) error {
+	return binary.Write(c, ByteOrder, newHeader(o, opcode, size))
 }
 
-func (c *Conn) WriteValues(o ObjectId, opcode uint16, vars ...Type) error {
-	var size uint16
-	for _, v := range vars {
-		size += v.size()
-	}
-	if err := c.writeHeader(o, opcode, size); err != nil {
-		return err
-	}
-	for _, v := range vars {
-		if err := v.writeTo(c.c); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (c *Conn) ReadValue(v Type) error {
-	return v.readFrom(c.c)
-}
-
-type Object interface {
-	Handle(opcode uint16, c *Conn) error
-}
-
-func (c *Conn) AddObject(id ObjectId, o Object) {
-	c.objects[id] = o
-}
-
-func (c *Conn) DeleteObject(id ObjectId) {
-	delete(c.objects, id)
-}
-
-func (c *Conn) NextId() ObjectId {
-	c.id += 1
-	return c.id
-}
-
-func (c *Conn) Next() error {
+func (c Conn) ReadMessage() (m *Message, err error) {
 	h, err := c.readHeader()
+		if err != nil {
+			return
+		}
+	p := make([]byte, h.size())
+	oob := make([]byte, 16)
+	_, oobn, _, _, err := c.ReadMsgUnix(p, oob)
 	if err != nil {
-		return err
+		return 
+	}
+	
+	m = &Message{
+		object: h.object(),
+		opcode: h.opcode(),
+		p: bytes.NewBuffer(p),
 	}
 
-	if obj, ok := c.objects[h.object()]; ok {
-		return obj.Handle(h.opcode(), c)
+	if oobn == 0 {
+		return
 	}
 
-	return fmt.Errorf("no object with id %d found", h.object())
+	oob = oob[:oobn]
+	scms, err := syscall.ParseSocketControlMessage(oob)
+	if err != nil {
+		return
+	}
+	if len(scms) != 1 {
+		err = fmt.Errorf("expected 1 SocketControlMessage, got %d", len(scms))
+			return
+	}
+	scm := scms[0]
+	m.fds, err = syscall.ParseUnixRights(&scm)
+	return
 }
 
-func (c *Conn) Close() error {
-	return c.c.Close()
+func (c Conn) WriteMessage(m *Message) (err error) {
+	oob := syscall.UnixRights(m.fds...)
+	_, _, err = c.WriteMsgUnix(m.p.Bytes(), oob, nil)
+	return
 }

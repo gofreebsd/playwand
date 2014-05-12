@@ -1,3 +1,6 @@
+// +build ignore
+
+
 package proto
 
 import (
@@ -100,7 +103,6 @@ func (s String) len() uint32 {
 	return l
 }
 
-type ObjectId uint32
 
 func (i *ObjectId) readFrom(c *net.UnixConn) error {
 	return binary.Read(c, HostOrder, i)

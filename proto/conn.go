@@ -1,13 +1,13 @@
 package proto
 
 import (
-	"encoding/binary"
 	"bytes"
-	"syscall"
+	"encoding/binary"
 	"fmt"
 	"net"
 	"os"
 	"path"
+	"syscall"
 )
 
 var ByteOrder = binary.LittleEndian
@@ -63,7 +63,7 @@ func DialPath(path string) (c Conn, err error) {
 }
 
 type Listener struct {
-	 *net.UnixListener
+	*net.UnixListener
 }
 
 func Listen() (Listener, error) {
@@ -91,20 +91,20 @@ func (c Conn) writeHeader(o ObjectId, opcode, size uint16) error {
 
 func (c Conn) ReadMessage() (m *Message, err error) {
 	h, err := c.readHeader()
-		if err != nil {
-			return
-		}
+	if err != nil {
+		return
+	}
 	p := make([]byte, h.size())
 	oob := make([]byte, 16)
 	_, oobn, _, _, err := c.ReadMsgUnix(p, oob)
 	if err != nil {
-		return 
+		return
 	}
-	
+
 	m = &Message{
 		object: h.object(),
 		opcode: h.opcode(),
-		p: bytes.NewBuffer(p),
+		p:      bytes.NewBuffer(p),
 	}
 
 	if oobn == 0 {
@@ -118,7 +118,7 @@ func (c Conn) ReadMessage() (m *Message, err error) {
 	}
 	if len(scms) != 1 {
 		err = fmt.Errorf("expected 1 SocketControlMessage, got %d", len(scms))
-			return
+		return
 	}
 	scm := scms[0]
 	m.fds, err = syscall.ParseUnixRights(&scm)

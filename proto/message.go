@@ -1,21 +1,21 @@
 package proto
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
-	"bytes"
 )
 
 var HostOrder = binary.LittleEndian
 
 type ObjectId uint32
 
-type Message struct{
+type Message struct {
 	object ObjectId
 	opcode uint16
-	p *bytes.Buffer
-	fds []int
-	fdi int
+	p      *bytes.Buffer
+	fds    []int
+	fdi    int
 }
 
 func NewMessage(object ObjectId, opcode uint16) *Message {
@@ -24,7 +24,7 @@ func NewMessage(object ObjectId, opcode uint16) *Message {
 
 func (m *Message) ReadInt32() (v int32, err error) {
 	err = binary.Read(m.p, HostOrder, &v)
-		return
+	return
 }
 
 func (m *Message) WriteInt32(v int32) error {
@@ -33,7 +33,7 @@ func (m *Message) WriteInt32(v int32) error {
 
 func (m *Message) ReadUint32() (v uint32, err error) {
 	err = binary.Read(m.p, HostOrder, &v)
-		return
+	return
 }
 
 func (m *Message) WriteUint32(v uint32) error {
@@ -43,7 +43,7 @@ func (m *Message) WriteUint32(v uint32) error {
 func (m *Message) ReadFixed() (v float32, err error) {
 	var u uint32
 	if err = binary.Read(m.p, HostOrder, &u); err != nil {
-		return 
+		return
 	}
 	// TODO: make float32
 	return
@@ -56,14 +56,14 @@ func (m *Message) WriteFixed(v float32) error {
 func (m *Message) ReadString() (s string, err error) {
 	var l uint32
 	if err = binary.Read(m.p, HostOrder, &l); err != nil {
-		return 
+		return
 	}
 	b := make([]byte, stringWireLen(l))
 	if _, err = m.p.Read(b); err != nil {
-		return 
+		return
 	}
 	s = string(b[:l-1])
-	return 
+	return
 }
 
 func (m *Message) WriteString(s string) (err error) {
@@ -75,7 +75,7 @@ func (m *Message) WriteString(s string) (err error) {
 	d := make([]byte, stringWireLen(l))
 	copy(d, s)
 	_, err = m.p.Write(d)
-	return 
+	return
 }
 
 func stringWireLen(l uint32) uint32 {
@@ -87,7 +87,7 @@ func stringWireLen(l uint32) uint32 {
 
 func (m *Message) ReadObjectId() (oid ObjectId, err error) {
 	err = binary.Read(m.p, HostOrder, &oid)
-return
+	return
 }
 
 func (m *Message) WriteObjectId(oid ObjectId) error {
@@ -96,13 +96,13 @@ func (m *Message) WriteObjectId(oid ObjectId) error {
 
 func (m *Message) ReadArray() (a []byte, err error) {
 	panic(fmt.Errorf("NOT IMPLEMENTED"))
-//	var l uint32
-//	if err = binary.Read(m.p, HostOrder, &l); err != nil {
-//		return err
-//	}
-//	a = make([]byte, l)
-//	_, err = m.p.Read(a)
-//	return 
+	//	var l uint32
+	//	if err = binary.Read(m.p, HostOrder, &l); err != nil {
+	//		return err
+	//	}
+	//	a = make([]byte, l)
+	//	_, err = m.p.Read(a)
+	//	return
 }
 
 func (m *Message) WriteArray(a []byte) error {
@@ -124,12 +124,10 @@ func (m *Message) ReadFd() (fd uintptr, err error) {
 	}
 	fd = uintptr(m.fds[m.fdi])
 	m.fdi++
-	return 
+	return
 }
 
 func (m *Message) WriteFd(fd uintptr) error {
 	m.fds = append(m.fds, int(fd))
 	return nil
 }
-
-

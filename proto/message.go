@@ -22,21 +22,33 @@ func NewMessage(object ObjectId, opcode uint16) *Message {
 	return &Message{object: object, opcode: opcode, p: new(bytes.Buffer)}
 }
 
-func (m *Message) ReadInt32() (v int32, err error) {
+func (m *Message) Object() ObjectId {
+	return m.object
+}
+
+func (m *Message) Opcode() uint16 {
+	return m.opcode
+}
+
+func (m *Message) String() string {
+	return fmt.Sprintf("Message{obj:%d, opcode:%d, payload: %+v}", m.object, m.opcode, m.p.Bytes())
+}
+
+func (m *Message) ReadInt() (v int32, err error) {
 	err = binary.Read(m.p, HostOrder, &v)
 	return
 }
 
-func (m *Message) WriteInt32(v int32) error {
+func (m *Message) WriteInt(v int32) error {
 	return binary.Write(m.p, HostOrder, v)
 }
 
-func (m *Message) ReadUint32() (v uint32, err error) {
+func (m *Message) ReadUint() (v uint32, err error) {
 	err = binary.Read(m.p, HostOrder, &v)
 	return
 }
 
-func (m *Message) WriteUint32(v uint32) error {
+func (m *Message) WriteUint(v uint32) error {
 	return binary.Write(m.p, HostOrder, v)
 }
 

@@ -126,6 +126,9 @@ func (c Conn) ReadMessage() (m *Message, err error) {
 }
 
 func (c Conn) WriteMessage(m *Message) (err error) {
+	if err = c.writeHeader(m.object, m.opcode, uint16(m.p.Len())); err != nil {
+		return
+	}
 	oob := syscall.UnixRights(m.fds...)
 	_, _, err = c.WriteMsgUnix(m.p.Bytes(), oob, nil)
 	return

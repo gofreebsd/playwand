@@ -13,32 +13,31 @@ import (
 
 
 type {{$exportedMessageStructName}} struct {
-	id proto.ObjectId
 	{{range .Args}}
 	{{Exported .Name}} {{GoType .Type}}
 	{{end}}
 }
 
-func (m {{$exportedMessageStructName}}) opcode() uint16 { return {{.Opcode}} }
-
-func (m *{{$exportedMessageStructName}}) readFrom(c *proto.Conn) (err error) {
+func (m *{{$exportedMessageStructName}}) Unmarshal(wm *proto.Message) (err error) {
 	{{range .Args}}
-	if err = c.ReadValue((*{{WlType .Type}})(&m.{{Exported .Name}})); err != nil {
+	if m.{{Exported .Name}}, err = wm.Read{{WlType .Type}}(); err != nil {
 		return
 	}
 	{{end}}
 	return nil
 }
 
-func (m {{$exportedMessageStructName}}) WriteTo(c *proto.Conn) (err error) {
-	vars := []proto.Type{ {{range .Args}}
-	(*{{WlType .Type}})(&m.{{Exported .Name}}),
-	{{end}} }
-	return c.WriteValues(m.id, m.opcode(), vars...)
+func (m {{$exportedMessageStructName}}) Marshal(wm *proto.Message) (err error) {
+	{{range .Args}}
+	if err = wm.Write{{WlType .Type}}(m.{{Exported .Name}}); err != nil {
+		return
+	}
+	{{end}}
+	return nil
 }
 {{end}}
 
-{{range .Interfaces}} 
+{{range .Interfaces}}
 
 
 {{range .Requests}}

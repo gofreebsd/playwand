@@ -66,14 +66,14 @@ type Arg struct {
 }
 
 var typemap = map[string][2]string{
-	"new_id": {"proto.ObjectId", "proto.ObjectId"},
-	"object": {"proto.ObjectId", "proto.ObjectId"},
-	"uint":   {"proto.Uint", "uint32"},
-	"string": {"proto.String", "string"},
-	"int":    {"proto.Int", "int32"},
-	"fd":     {"proto.Fd", "uintptr"},
-	"fixed":  {"proto.Fixed", "float32"},
-	"array":  {"proto.Array", "[]byte"},
+	"new_id": {"ObjectId", "proto.ObjectId"},
+	"object": {"ObjectId", "proto.ObjectId"},
+	"uint":   {"Uint", "uint32"},
+	"string": {"String", "string"},
+	"int":    {"Int", "int32"},
+	"fd":     {"Fd", "uintptr"},
+	"fixed":  {"Fixed", "float32"},
+	"array":  {"Array", "[]byte"},
 }
 
 func Exported(parts ...string) string {

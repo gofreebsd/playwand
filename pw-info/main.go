@@ -2,121 +2,81 @@ package main
 
 import (
 	"fmt"
-	"os"
+	"log"
 
 	"github.com/vasiliyl/playwand/proto"
 	"github.com/vasiliyl/playwand/proto/wayland"
 )
 
-type i struct {
-	c           *proto.Conn
-	s           wayland.ServerObjectsFactory
-	d           wayland.ServerDisplay
-	r           wayland.ServerRegistry
-	output_done bool
-	cbs         []*cb
-}
-
-func (i *i) Error(msg wayland.DisplayErrorEvent) error {
-	return fmt.Errorf("Display error: %s", msg.Message)
-}
-
-func (i *i) DeleteId(msg wayland.DisplayDeleteIdEvent) error {
-	return nil
-}
-
-func (i *i) Global(msg wayland.RegistryGlobalEvent) error {
-	fmt.Printf("interface: %s, name: %d, version: %d\n", msg.Interface, msg.Name, msg.Version)
-	if msg.Interface == "wl_output" {
-		o := i.s.NewOutput(i)
-		if err := i.r.Bind(msg.Name, msg.Interface, msg.Version, o.Id()).WriteTo(i.c); err != nil {
-			return err
-		}
-
-	}
-	return nil
-}
-
-func (i *i) GlobalRemove(msg wayland.RegistryGlobalRemoveEvent) error {
-	return nil
-}
-
-func (i *i) Geometry(msg wayland.OutputGeometryEvent) error {
-	fmt.Printf("Output geometry:\n")
-	fmt.Printf("\tx: %d, y: %d\n", msg.X, msg.Y)
-	fmt.Printf("\twidth: %d, height: %d\n", msg.PhysicalWidth, msg.PhysicalHeight)
-	fmt.Printf("\tmanufacturer: %s, model: %s\n", msg.Make, msg.Model)
-	return nil
-}
-
-func (i *i) Mode(msg wayland.OutputModeEvent) error {
-	return nil
-}
-
-func (i *i) Scale(msg wayland.OutputScaleEvent) error {
-	return nil
-}
-
-func (i *i) Done(msg wayland.OutputDoneEvent) error {
-	i.output_done = true
-	return nil
-}
-
-func (i *i) done() bool {
-	if !i.output_done {
-		return false
-	}
-	for _, cb := range i.cbs {
-		if !*cb {
-			return false
-		}
-	}
-	return true
-}
-
-type cb bool
-
-func (cb *cb) Done(msg wayland.CallbackDoneEvent) error {
-	*cb = true
-	return nil
-}
-
 func main() {
 	c, err := proto.Dial()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Dial: %s", err)
-		os.Exit(2)
+		log.Fatal(err)
 	}
 	defer c.Close()
 
-	s := wayland.NewServer(c)
+	did := proto.ObjectId(1)
 
-	i := new(i)
-
-	i.c = c
-	i.s = s
-	i.d = s.NewDisplay(i)
-	i.r = s.NewRegistry(i)
-
-	if err := i.d.GetRegistry(i.r.Id()).WriteTo(c); err != nil {
-		fmt.Fprintf(os.Stderr, "GetRegistry: %s", err)
-		os.Exit(1)
+	// display.GetRegistry
+	rid := proto.ObjectId(2)
+	getRegistry := &wayland.DisplayGetRegistryRequest{Registry: rid}
+	mGetRegistry := proto.NewMessage(did, 1)
+	if err := getRegistry.MarshalWayland(mGetRegistry); err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("%s", mGetRegistry)
+	if err := c.WriteMessage(mGetRegistry); err != nil {
+		log.Fatal(err)
 	}
 
-	cb := new(cb)
-	scb := s.NewCallback(cb)
-
-	i.cbs = append(i.cbs, cb)
-
-	if err := i.d.Sync(scb.Id()).WriteTo(c); err != nil {
-		fmt.Fprintf(os.Stderr, "Sync: %s", err)
-		os.Exit(1)
+	// display.Sync
+	cbid := proto.ObjectId(3)
+	sync := &wayland.DisplaySyncRequest{Callback: cbid}
+	mSync := proto.NewMessage(did, 0)
+	if err := sync.MarshalWayland(mSync); err != nil {
+		log.Fatal(err)
+	}
+	if err := c.WriteMessage(mSync); err != nil {
+		log.Fatal(err)
 	}
 
-	for !i.done() {
-		if err := c.Next(); err != nil {
-			fmt.Fprintf(os.Stderr, "%s", err)
-			os.Exit(1)
+	// read messages until callback's done event comes
+loop:
+	for {
+		m, err := c.ReadMessage()
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		switch m.Object() {
+		case rid:
+			// check if it is global event, unmarshal and print it
+			global := new(wayland.RegistryGlobalEvent)
+			if err := global.UnmarshalWayland(m); err != nil {
+				log.Printf("Not a global!")
+			} else {
+				fmt.Printf("interface: %s, name: %d, version: %d\n", global.Interface, global.Name, global.Version)
+			}
+
+		case cbid:
+			// DONE!
+			break loop
+
+		case did:
+			log.Printf("Display message: %s", m)
+			if m.Opcode() == 0 {
+				e := new(wayland.DisplayErrorEvent)
+				if err := e.UnmarshalWayland(m); err != nil {
+					log.Fatal(err)
+				}
+				log.Printf("%+v", e)
+			}
+			break loop
+
+		default:
+			log.Fatal(fmt.Errorf("Unexpected message: %d:%d", m.Object(), m.Opcode()))
 		}
 	}
+
+	return
 }

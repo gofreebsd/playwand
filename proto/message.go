@@ -80,7 +80,7 @@ func (m *Message) ReadString() (s string, err error) {
 
 func (m *Message) WriteString(s string) (err error) {
 	// TODO: do we need to handle multibyte strings?
-	l := uint32(len(s))
+	l := uint32(len(s)) + 1
 	if err = binary.Write(m.p, HostOrder, l); err != nil {
 		return
 	}

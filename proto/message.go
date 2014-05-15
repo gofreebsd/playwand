@@ -31,7 +31,7 @@ func (m *Message) Opcode() uint16 {
 }
 
 func (m *Message) String() string {
-	return fmt.Sprintf("Message{obj:%d, opcode:%d, payload: %+v}", m.object, m.opcode, m.p.Bytes())
+	return fmt.Sprintf("Message{obj:%d, opcode:%d, payload(%d): %+v}", m.object, m.opcode, m.p.Len(), m.p.Bytes()[:m.p.Len()])
 }
 
 func (m *Message) ReadInt() (v int32, err error) {

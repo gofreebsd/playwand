@@ -59,7 +59,7 @@ func (i *info) Print() {
 func (i *info) getRegistry() error {
 	i.rid = i.nextId()
 	getRegistry := &wayland.DisplayGetRegistryRequest{Registry: i.rid}
-	mGetRegistry := proto.NewMessage(i.did, 1) // ☣
+	mGetRegistry := i.did.NewMessage(1) // ☣
 	if err := getRegistry.Marshal(mGetRegistry); err != nil {
 		return errgo.Trace(err)
 	}
@@ -144,7 +144,7 @@ func (i *info) bindOutput() error {
 	}
 
 	bind := &wayland.RegistryBindRequest{Name: og.Name, Interface: og.Interface, Version: og.Version, Id: i.oid}
-	mBind := proto.NewMessage(i.rid, 0)
+	mBind := i.rid.NewMessage(0)
 	if err := bind.Marshal(mBind); err != nil {
 		return errgo.Trace(err)
 	}
@@ -193,7 +193,7 @@ geometry:
 
 func (i *info) sync(id proto.ObjectId) error {
 	sync := &wayland.DisplaySyncRequest{Callback: id}
-	mSync := proto.NewMessage(i.did, 0)
+	mSync := i.did.NewMessage(0)
 	if err := sync.Marshal(mSync); err != nil {
 		return errgo.Trace(err)
 	}

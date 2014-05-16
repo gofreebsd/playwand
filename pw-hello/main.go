@@ -153,7 +153,7 @@ func (h *hello) loadImage() error {
 func (h *hello) getRegistry() error {
 	h.registryId = h.nextId()
 	getRegistry := &wayland.DisplayGetRegistryRequest{Registry: h.registryId}
-	mGetRegistry := proto.NewMessage(h.did, 1)
+	mGetRegistry := h.did.NewMessage(1)
 	if err := getRegistry.Marshal(mGetRegistry); err != nil {
 		return errgo.Trace(err)
 	}
@@ -228,7 +228,7 @@ func (h *hello) bindCompositor() error {
 		if g.Interface == "wl_compositor" {
 			h.compositorId = h.nextId()
 			bind := &wayland.RegistryBindRequest{Name: g.Name, Interface: g.Interface, Version: g.Version, Id: h.compositorId}
-			mBind := proto.NewMessage(h.registryId, 0)
+			mBind := h.registryId.NewMessage(0)
 			if err := bind.Marshal(mBind); err != nil {
 				return errgo.Trace(err)
 			}
@@ -245,7 +245,7 @@ func (h *hello) bindCompositor() error {
 func (h *hello) createSurface() error {
 	h.surfaceId = h.nextId()
 	createSurface := &wayland.CompositorCreateSurfaceRequest{Id: h.surfaceId}
-	m := proto.NewMessage(h.compositorId, 0)
+	m := h.compositorId.NewMessage(0)
 	if err := createSurface.Marshal(m); err != nil {
 		return errgo.Trace(err)
 	}
@@ -260,7 +260,7 @@ func (h *hello) createShellSurface() error {
 		if g.Interface == "xdg_shell" {
 			h.shellId = h.nextId()
 			bind := &wayland.RegistryBindRequest{Name: g.Name, Interface: g.Interface, Version: g.Version, Id: h.shellId}
-			m := proto.NewMessage(h.registryId, 0)
+			m := h.registryId.NewMessage(0)
 			if err := bind.Marshal(m); err != nil {
 				return errgo.Trace(err)
 			}
@@ -276,7 +276,7 @@ func (h *hello) createShellSurface() error {
 create_shell:
 	// use unstable version
 	useUnstableVersion := &xdg_shell.XdgShellUseUnstableVersionRequest{Version: 3}
-	m := proto.NewMessage(h.shellId, 0)
+	m := h.shellId.NewMessage(0)
 	if err := useUnstableVersion.Marshal(m); err != nil {
 		return errgo.Trace(err)
 	}
@@ -339,7 +339,7 @@ create_shell:
 
 	h.shellSurfaceId = h.nextId()
 	createShellSurface := &xdg_shell.XdgShellGetXdgSurfaceRequest{h.shellSurfaceId, h.surfaceId}
-	m = proto.NewMessage(h.shellId, 1)
+	m = h.shellId.NewMessage(1)
 	if err := createShellSurface.Marshal(m); err != nil {
 		return errgo.Trace(err)
 	}
@@ -348,7 +348,7 @@ create_shell:
 	}
 
 	setTitle := &xdg_shell.XdgSurfaceSetTitleRequest{Title: "hello"}
-	m = proto.NewMessage(h.shellSurfaceId, 3)
+	m = h.shellSurfaceId.NewMessage(3)
 	if err := setTitle.Marshal(m); err != nil {
 		return errgo.Trace(err)
 	}
@@ -364,7 +364,7 @@ func (h *hello) bindShm() error {
 		if g.Interface == "wl_shm" {
 			h.shmId = h.nextId()
 			bind := &wayland.RegistryBindRequest{Name: g.Name, Interface: g.Interface, Version: g.Version, Id: h.shmId}
-			mBind := proto.NewMessage(h.registryId, 0)
+			mBind := h.registryId.NewMessage(0)
 			if err := bind.Marshal(mBind); err != nil {
 				return errgo.Trace(err)
 			}
@@ -448,7 +448,7 @@ formats_loop:
 func (h *hello) createShmPool() error {
 	h.shmPoolId = h.nextId()
 	createPool := &wayland.ShmCreatePoolRequest{Id: h.shmPoolId, Fd: h.imgShm.Fd(), Size: int32(len(h.imgMap))}
-	m := proto.NewMessage(h.shmId, 0)
+	m := h.shmId.NewMessage(0)
 	if err := createPool.Marshal(m); err != nil {
 		return errgo.Trace(err)
 	}
@@ -468,7 +468,7 @@ func (h *hello) createBuffer() error {
 		Stride: h.imgW * 4,
 		Format: 0,
 	}
-	m := proto.NewMessage(h.shmPoolId, 0)
+	m := h.shmPoolId.NewMessage(0)
 	if err := createBuffer.Marshal(m); err != nil {
 		return errgo.Trace(err)
 	}
@@ -484,7 +484,7 @@ func (h *hello) attach() error {
 		X:      0,
 		Y:      0,
 	}
-	ma := proto.NewMessage(h.surfaceId, 1)
+	ma := h.surfaceId.NewMessage(1)
 	if err := attach.Marshal(ma); err != nil {
 		return errgo.Trace(err)
 	}
@@ -496,7 +496,7 @@ func (h *hello) attach() error {
 		X: 0, Y: 0,
 		Width: h.imgW, Height: h.imgH,
 	}
-	md := proto.NewMessage(h.surfaceId, 2)
+	md := h.surfaceId.NewMessage(2)
 	if err := dmg.Marshal(md); err != nil {
 		return errgo.Trace(err)
 	}
@@ -504,7 +504,7 @@ func (h *hello) attach() error {
 		return errgo.Trace(err)
 	}
 
-	mcommit := proto.NewMessage(h.surfaceId, 6)
+	mcommit := h.surfaceId.NewMessage(6)
 	if err := h.c.WriteMessage(mcommit); err != nil {
 		return errgo.Trace(err)
 	}
@@ -537,7 +537,7 @@ func (h *hello) loop() error {
 
 func (h *hello) sync(id proto.ObjectId) error {
 	sync := &wayland.DisplaySyncRequest{Callback: id}
-	mSync := proto.NewMessage(h.did, 0)
+	mSync := h.did.NewMessage(0)
 	if err := sync.Marshal(mSync); err != nil {
 		return errgo.Trace(err)
 	}

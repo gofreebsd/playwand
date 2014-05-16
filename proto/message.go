@@ -10,6 +10,10 @@ var HostOrder = binary.LittleEndian
 
 type ObjectId uint32
 
+func (o ObjectId) NewMessage(opcode uint16) *Message {
+	return NewMessage(o, opcode)
+}
+
 type Message struct {
 	object ObjectId
 	opcode uint16

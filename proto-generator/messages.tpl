@@ -11,7 +11,6 @@ import (
 
 {{$exportedMessageStructName := Exported .Interface .Name .Kind}}
 
-
 type {{$exportedMessageStructName}} struct {
 	{{range .Args}}
 	{{Exported .Name}} {{GoType .Type}}

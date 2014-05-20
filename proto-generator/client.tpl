@@ -6,19 +6,20 @@ import (
 	"github.com/vasiliyl/playwand/proto"
 )
 
-type ClientObjectsFactory struct {
+type Client struct {
 	c *proto.Conn
 }
 
-func NewClient(c *proto.Conn) ClientObjectsFactory {
-	return ClientObjectsFactory{c}
+func NewClient(c *proto.Conn) Client {
+	return Client{c}
 }
+
 
 {{range .Interfaces}}
 {{$interfaceName := Exported .Name}}
 
-type {{$interfaceName}}RequestsInterface interface {
-	{{range .Requests}}
+type Client{{$interfaceName}}Implementation interface {
+	{{range .Events}}
 	{{Exported .Name}}({{Exported .Interface .Name .Kind}}) error
 	{{end}}
 }
@@ -27,10 +28,10 @@ type {{$interfaceName}}RequestsInterface interface {
 type Client{{$interfaceName}} struct {
 	c *proto.Conn
 	id proto.ObjectId
-	i {{$interfaceName}}RequestsInterface
+	i Client{{$interfaceName}}Implementation
 }
 
-func (c ClientObjectsFactory) New{{$interfaceName}}(i {{$interfaceName}}RequestsInterface) Client{{$interfaceName}} {
+func (c Client) New{{$interfaceName}}(i Client{{$interfaceName}}Implementation) Client{{$interfaceName}} {
 	o := Client{{$interfaceName}}{
 		c: c.c,
 		id: c.c.NextId(),
@@ -44,33 +45,32 @@ func (o Client{{$interfaceName}}) Id() proto.ObjectId {
 	return o.id
 }
 
-func (o Client{{$interfaceName}}) Handle(opcode uint16, c *proto.Conn) error {
-	switch opcode {
-		{{range .Requests}}
+func (o Client{{$interfaceName}}) Handle(m *proto.Message) error {
+	switch m.Opcode() {
+		{{range .Events}}
 	case {{.Opcode}}:
-		m := {{Exported .Interface .Name .Kind}}{id: o.id}
-		if err := m.readFrom(c); err != nil {
+		var sm {{Exported .Interface .Name .Kind}}
+		if err := sm.Unmarshal(m); err != nil {
 			return err
 		}
-		return o.i.{{Exported .Name}}(m)
+		return o.i.{{Exported .Name}}(sm)
 		{{end}}
 
 	default:
-		return fmt.Errorf("{{Exported .Name}}: invalid opcode: %s", opcode)
+		return fmt.Errorf("{{Exported .Name}}: invalid event opcode: %s", m.Opcode())
 	}
 }
 
-{{range .Events}}
-func (o Client{{$interfaceName}}) {{Exported .Name}}({{range .Args}}{{Unexported .Name}} {{GoType .Type}}, {{end}}) {{Exported .Interface .Name .Kind}} {
-	return {{Exported .Interface .Name .Kind}}{ 
-		id: o.id,
-		{{range .Args}}
-		{{Exported .Name}}: {{Unexported .Name}},
-		{{end}} }
-}
-
-func (o Client{{$interfaceName}}) New{{Exported .Name}}() {{Exported .Interface .Name .Kind}} {
-	return {{Exported .Interface .Name .Kind}}{id: o.id}
+{{range .Requests}}
+func (o Client{{$interfaceName}}) {{Exported .Name}}({{range .Args}}{{Unexported .Name}} {{GoType .Type}}, {{end}}) error {
+	m := proto.NewMessage(o.id, {{.Opcode}})
+	{{range .Args}}
+	if err := m.Write{{WlType .Type}}({{Unexported .Name}}); err != nil {
+		return err
+	}
+	{{end}}
+	return o.c.WriteMessage(m)
 }
 {{end}}
+
 {{end}}

@@ -11,36 +11,36 @@ import (
 )
 
 type info struct {
-	c                 proto.Conn
-	id, did, rid, oid proto.ObjectId
-	globals           []*wayland.RegistryGlobalEvent
-	geometries        []*wayland.OutputGeometryEvent
+	c *proto.Conn
+
+	wlClient wayland.Client
+
+	display  wayland.ClientDisplay
+	registry wayland.ClientRegistry
+	output   wayland.ClientOutput
+
+	globals    []wayland.RegistryGlobalEvent
+	geometries []wayland.OutputGeometryEvent
 }
 
-func newInfo(c proto.Conn) *info {
-	return &info{
-		c:   c,
-		did: 1,
-		id:  2,
+func newInfo(c *proto.Conn) *info {
+	i := &info{
+		c:        c,
+		wlClient: wayland.NewClient(c),
 	}
-}
-
-func (i *info) nextId() (id proto.ObjectId) {
-	id = i.id
-	i.id++
-	return
+	i.display = i.wlClient.NewDisplay(i)
+	return i
 }
 
 func (i *info) Go() error {
 	if err := i.getRegistry(); err != nil {
-		return err
+		return errgo.Trace(err)
 	}
 
 	if err := i.bindOutput(); err != nil {
-		return err
+		return errgo.Trace(err)
 	}
 
-	fmt.Printf("%+v\n", i)
 	return nil
 }
 
@@ -52,152 +52,106 @@ func (i *info) Print() {
 				fmt.Printf("\tx: %d, y: %d\n\twidth: %d mm, height: %d mm\n", g.X, g.Y, g.PhysicalWidth, g.PhysicalHeight)
 			}
 		}
-
 	}
 }
 
+// wayland.Display events
+func (i *info) Error(m wayland.DisplayErrorEvent) error {
+	return errgo.New("Display error: %s", m.Message)
+}
+
+func (i *info) DeleteId(m wayland.DisplayDeleteIdEvent) error {
+	i.c.DeleteObject(proto.ObjectId(m.Id))
+	return nil
+}
+
 func (i *info) getRegistry() error {
-	i.rid = i.nextId()
-	getRegistry := &wayland.DisplayGetRegistryRequest{Registry: i.rid}
-	mGetRegistry := i.did.NewMessage(1) // ☣
-	if err := getRegistry.Marshal(mGetRegistry); err != nil {
-		return errgo.Trace(err)
-	}
-	if err := i.c.WriteMessage(mGetRegistry); err != nil {
+	i.registry = i.wlClient.NewRegistry(i)
+	if err := i.display.GetRegistry(i.registry.Id()); err != nil {
 		return errgo.Trace(err)
 	}
 
-	cbid := i.nextId()
-	if err := i.sync(cbid); err != nil {
+	if err := i.sync(); err != nil {
 		return errgo.Trace(err)
 	}
 
-cb:
-	for {
-		m, err := i.c.ReadMessage()
-		if err != nil {
-			return errgo.Trace(err)
-		}
+	return nil
+}
 
-		switch {
-		case m.Object() == i.did && m.Opcode() == 0:
-			e := new(wayland.DisplayErrorEvent)
-			if err := e.Unmarshal(m); err != nil {
-				return errgo.Trace(err)
-			}
-			return errgo.New("%s", e.Message)
+// wayland.Registry events
+func (i *info) Global(g wayland.RegistryGlobalEvent) error {
+	i.globals = append(i.globals, g)
+	return nil
+}
 
-		case m.Object() == i.rid && m.Opcode() == 0:
-			global := new(wayland.RegistryGlobalEvent)
-			if err := global.Unmarshal(m); err != nil {
-				return errgo.Trace(err)
-			}
-			i.globals = append(i.globals, global)
-
-		case m.Object() == cbid:
-			break cb
-		}
-	}
-
-	// deleteId
-	m, err := i.c.ReadMessage()
-	if err != nil {
-		return errgo.Trace(err)
-	}
-
-	switch {
-	case m.Object() == i.did && m.Opcode() == 0:
-		e := new(wayland.DisplayErrorEvent)
-		if err := e.Unmarshal(m); err != nil {
-			return errgo.Trace(err)
-		}
-		return errgo.New("%s", e.Message)
-
-	case m.Object() == i.did && m.Opcode() == 1:
-		d := new(wayland.DisplayDeleteIdEvent)
-		if err := d.Unmarshal(m); err != nil {
-			return errgo.Trace(err)
-		}
-		if proto.ObjectId(d.Id) != cbid {
-			return errgo.New("unexpected message: %+v", d)
-		}
-
-	default:
-		return errgo.New("unexpected message: %s", m)
-	}
-
+func (i *info) GlobalRemove(_ wayland.RegistryGlobalRemoveEvent) error {
 	return nil
 }
 
 func (i *info) bindOutput() error {
-	i.oid = i.nextId()
-
-	var og *wayland.RegistryGlobalEvent
+	var og wayland.RegistryGlobalEvent
 	for _, g := range i.globals {
 		if g.Interface == "wl_output" {
 			og = g
-			break
+			goto bind
 		}
 	}
-	if og == nil {
-		return errgo.New("no output registered")
-	}
+	return errgo.New("no output registered")
 
-	bind := &wayland.RegistryBindRequest{Name: og.Name, Interface: og.Interface, Version: og.Version, Id: i.oid}
-	mBind := i.rid.NewMessage(0)
-	if err := bind.Marshal(mBind); err != nil {
-		return errgo.Trace(err)
-	}
-	if err := i.c.WriteMessage(mBind); err != nil {
+bind:
+	i.output = i.wlClient.NewOutput(i)
+	if err := i.registry.Bind(og.Name, og.Interface, og.Version, i.output.Id()); err != nil {
 		return errgo.Trace(err)
 	}
 
-	cbid := i.nextId()
-	if err := i.sync(cbid); err != nil {
+	if err := i.sync(); err != nil {
 		return errgo.Trace(err)
-	}
-
-geometry:
-	for {
-		m, err := i.c.ReadMessage()
-		if err != nil {
-			return errgo.Trace(err)
-		}
-
-		switch {
-		case m.Object() == i.did && m.Opcode() == 0:
-			e := new(wayland.DisplayErrorEvent)
-			if err := e.Unmarshal(m); err != nil {
-				return errgo.Trace(err)
-			}
-			log.Printf("%+v", e)
-			return errgo.New("%s", e.Message)
-
-		case m.Object() == i.oid && m.Opcode() == 0:
-			g := new(wayland.OutputGeometryEvent)
-			if err := g.Unmarshal(m); err != nil {
-				return errgo.Trace(err)
-			}
-			i.geometries = append(i.geometries, g)
-
-		case m.Object() == i.oid && m.Opcode() == 3:
-			break geometry
-
-		default:
-			return errgo.New("unexpected message: %s", m)
-		}
 	}
 
 	return nil
 }
 
-func (i *info) sync(id proto.ObjectId) error {
-	sync := &wayland.DisplaySyncRequest{Callback: id}
-	mSync := i.did.NewMessage(0)
-	if err := sync.Marshal(mSync); err != nil {
+// wayland.Output events
+func (i *info) Geometry(g wayland.OutputGeometryEvent) error {
+	i.geometries = append(i.geometries, g)
+	return nil
+}
+
+func (i *info) Mode(_ wayland.OutputModeEvent) error {
+	return nil
+}
+
+func (i *info) Done(_ wayland.OutputDoneEvent) error {
+	return nil
+}
+
+func (i *info) Scale(_ wayland.OutputScaleEvent) error {
+	return nil
+}
+
+type callback struct {
+	done bool
+}
+
+func (cb *callback) Done(_ wayland.CallbackDoneEvent) error {
+	cb.done = true
+	return nil
+}
+
+func (i *info) sync() error {
+	cb := new(callback)
+	scb := i.wlClient.NewCallback(cb)
+	log.Printf("scb.Id() = %d", scb.Id())
+	if err := i.display.Sync(scb.Id()); err != nil {
 		return errgo.Trace(err)
 	}
-	return i.c.WriteMessage(mSync)
+	for !cb.done {
+		if err := i.c.Next(); err != nil {
+			log.Printf("scb.Id() = %d, err = %s", scb.Id(), err)
+			return errgo.Trace(err)
+		}
+	}
+	return nil
 }
 
 func main() {
@@ -210,7 +164,7 @@ func main() {
 	i := newInfo(c)
 
 	if err := i.Go(); err != nil {
-		log.Fatal(errgo.DetailedErrorStack(err, errgo.Default))
+		log.Fatalf("\n%s\n", errgo.DetailedErrorStack(err, errgo.Default))
 	}
 
 	i.Print()

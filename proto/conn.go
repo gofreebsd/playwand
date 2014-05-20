@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"path"
@@ -11,6 +12,10 @@ import (
 )
 
 var ByteOrder = binary.LittleEndian
+
+type Object interface {
+	Handle(m *Message) error
+}
 
 type header struct {
 	Object     ObjectId
@@ -50,20 +55,27 @@ func sockPath() string {
 }
 
 type Conn struct {
-	*net.UnixConn
+	c       *net.UnixConn
+	objects map[ObjectId]Object
+	curid   ObjectId
 }
 
-func Dial() (Conn, error) {
+func Dial() (*Conn, error) {
 	return DialPath(sockPath())
 }
 
-func DialPath(path string) (c Conn, err error) {
-	c.UnixConn, err = net.DialUnix("unix", nil, &net.UnixAddr{Net: "unix", Name: path})
+func DialPath(path string) (c *Conn, err error) {
+	c = new(Conn)
+	c.c, err = net.DialUnix("unix", nil, &net.UnixAddr{Net: "unix", Name: path})
+	if err == nil {
+		c.objects = make(map[ObjectId]Object)
+		c.curid = 1
+	}
 	return
 }
 
 type Listener struct {
-	*net.UnixListener
+	l *net.UnixListener
 }
 
 func Listen() (Listener, error) {
@@ -71,32 +83,35 @@ func Listen() (Listener, error) {
 }
 
 func ListenPath(path string) (l Listener, err error) {
-	l.UnixListener, err = net.ListenUnix("unix", &net.UnixAddr{Net: "unix", Name: path})
+	l.l, err = net.ListenUnix("unix", &net.UnixAddr{Net: "unix", Name: path})
 	return
 }
 
-func (l Listener) AcceptWayland() (c Conn, err error) {
-	c.UnixConn, err = l.AcceptUnix()
-	return
-}
-
-func (c Conn) readHeader() (h header, err error) {
-	err = binary.Read(c, ByteOrder, &h)
-	return
-}
-
-func (c Conn) writeHeader(o ObjectId, opcode, size uint16) error {
-	return binary.Write(c, ByteOrder, newHeader(o, opcode, size))
-}
-
-func (c Conn) ReadMessage() (m *Message, err error) {
-	h, err := c.readHeader()
-	if err != nil {
-		return
+func (l Listener) Accept() (c *Conn, err error) {
+	c = new(Conn)
+	c.c, err = l.l.AcceptUnix()
+	if err == nil {
+		c.objects = make(map[ObjectId]Object)
+		c.curid = 1
 	}
-	p := make([]byte, h.size())
-	oob := make([]byte, 16)
-	_, oobn, _, _, err := c.ReadMsgUnix(p, oob)
+	return
+}
+
+func (l Listener) Close() error {
+	return l.l.Close()
+}
+
+func (c *Conn) readHeader() (h header, err error) {
+	err = binary.Read(c.c, ByteOrder, &h)
+	return
+}
+
+func (c *Conn) writeHeader(o ObjectId, opcode, size uint16) error {
+	return binary.Write(c.c, ByteOrder, newHeader(o, opcode, size))
+}
+
+func (c *Conn) ReadMessage() (m *Message, err error) {
+	h, err := c.readHeader()
 	if err != nil {
 		return
 	}
@@ -104,8 +119,24 @@ func (c Conn) ReadMessage() (m *Message, err error) {
 	m = &Message{
 		object: h.object(),
 		opcode: h.opcode(),
-		p:      bytes.NewBuffer(p),
 	}
+
+	if h.size() == 0 {
+		return
+	}
+
+	p := make([]byte, h.size())
+	oob := make([]byte, 16)
+	n, oobn, _, _, err := c.c.ReadMsgUnix(p, oob)
+	if err != nil {
+		return
+	}
+	if uint16(n) != h.size() {
+		err = fmt.Errorf("expected %d bytes, got %d", h.size(), n)
+		return
+	}
+
+	m.p = bytes.NewBuffer(p)
 
 	if oobn == 0 {
 		return
@@ -125,11 +156,44 @@ func (c Conn) ReadMessage() (m *Message, err error) {
 	return
 }
 
-func (c Conn) WriteMessage(m *Message) (err error) {
+func (c *Conn) WriteMessage(m *Message) (err error) {
 	if err = c.writeHeader(m.object, m.opcode, uint16(m.p.Len())); err != nil {
 		return
 	}
 	oob := syscall.UnixRights(m.fds...)
-	_, _, err = c.WriteMsgUnix(m.p.Bytes(), oob, nil)
+	_, _, err = c.c.WriteMsgUnix(m.p.Bytes(), oob, nil)
 	return
+}
+
+func (c *Conn) AddObject(id ObjectId, o Object) {
+	c.objects[id] = o
+}
+
+func (c *Conn) DeleteObject(id ObjectId) {
+	delete(c.objects, id)
+}
+
+func (c *Conn) NextId() (id ObjectId) {
+	id = c.curid
+	c.curid++
+	return
+}
+
+func (c *Conn) Next() error {
+	m, err := c.ReadMessage()
+	if err != nil {
+		return err
+	}
+
+	if obj, ok := c.objects[m.Object()]; ok {
+		return obj.Handle(m)
+	}
+
+	log.Printf("%s", m)
+
+	return fmt.Errorf("Object %d is not registered", m.Object())
+}
+
+func (c *Conn) Close() error {
+	return c.c.Close()
 }

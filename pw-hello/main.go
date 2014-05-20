@@ -40,8 +40,8 @@ type hello struct {
 	buffer     wayland.ClientBuffer
 
 	xdgClient    xdg_shell.Client
-	shell        xdg_shell.ClientXdgShell
-	shellSurface xdg_shell.ClientXdgSurface
+	shell        xdg_shell.ClientShell
+	shellSurface xdg_shell.ClientSurface
 
 	//registryId              proto.ObjectId
 	//shmId, shmPoolId        proto.ObjectId
@@ -227,7 +227,7 @@ func (h *hello) createShellSurface() error {
 	// bind xdg_shell
 	for _, g := range h.globals {
 		if g.Interface == "xdg_shell" {
-			h.shell = h.xdgClient.NewXdgShell(h)
+			h.shell = h.xdgClient.NewShell(h)
 			if err := h.registry.Bind(g.Name, g.Interface, g.Version, h.shell.Id()); err != nil {
 				return errgo.Trace(err)
 			}
@@ -247,7 +247,7 @@ bound:
 	}
 
 	// create shell surface
-	h.shellSurface = h.xdgClient.NewXdgSurface(h)
+	h.shellSurface = h.xdgClient.NewSurface(h)
 	if err := h.shell.GetXdgSurface(h.shellSurface.Id(), h.surface.Id()); err != nil {
 		return errgo.Trace(err)
 	}
@@ -261,7 +261,7 @@ bound:
 }
 
 // xdg_shell.Shell events
-func (h *hello) Ping(m xdg_shell.XdgShellPingEvent) error {
+func (h *hello) Ping(m xdg_shell.ShellPingEvent) error {
 	if err := h.shell.Pong(m.Serial); err != nil {
 		return errgo.Trace(err)
 	}
@@ -269,23 +269,23 @@ func (h *hello) Ping(m xdg_shell.XdgShellPingEvent) error {
 }
 
 // xdg_shell.ShellSurface events
-func (h *hello) Activated(_ xdg_shell.XdgSurfaceActivatedEvent) error {
+func (h *hello) Activated(_ xdg_shell.SurfaceActivatedEvent) error {
 	return nil
 }
 
-func (h *hello) ChangeState(_ xdg_shell.XdgSurfaceChangeStateEvent) error {
+func (h *hello) ChangeState(_ xdg_shell.SurfaceChangeStateEvent) error {
 	return nil
 }
 
-func (h *hello) Close(_ xdg_shell.XdgSurfaceCloseEvent) error {
+func (h *hello) Close(_ xdg_shell.SurfaceCloseEvent) error {
 	return nil
 }
 
-func (h *hello) Configure(_ xdg_shell.XdgSurfaceConfigureEvent) error {
+func (h *hello) Configure(_ xdg_shell.SurfaceConfigureEvent) error {
 	return nil
 }
 
-func (h *hello) Deactivated(_ xdg_shell.XdgSurfaceDeactivatedEvent) error {
+func (h *hello) Deactivated(_ xdg_shell.SurfaceDeactivatedEvent) error {
 	return nil
 }
 

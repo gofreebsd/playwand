@@ -4,13 +4,14 @@ import (
 	"encoding/xml"
 	"flag"
 	"fmt"
-	//"go/parser"
-	//"go/printer"
-	//"go/token"
 	"log"
 	"os"
 	"strings"
 	"text/template"
+)
+
+var (
+	trimPrefix = flag.String("trim-prefix", "", "trim this prefix from interface names")
 )
 
 type Protocol struct {
@@ -35,8 +36,8 @@ type Interface struct {
 }
 
 func (i *Interface) analyze() {
-	if strings.HasPrefix(i.Name, "wl_") {
-		i.Name = i.Name[3:]
+	if strings.HasPrefix(i.Name, *trimPrefix) {
+		i.Name = i.Name[len(*trimPrefix):]
 	}
 	for j := range i.Requests {
 		i.Requests[j].Kind = "Request"
@@ -113,7 +114,8 @@ var funcs = template.FuncMap{
 
 func main() {
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: %s <template> <protocol.xml> [param=value ...]", os.Args[0])
+		fmt.Fprintf(os.Stderr, "Usage: %s <template> <protocol.xml> [param=value ...]\nFlags:\n", os.Args[0])
+		flag.PrintDefaults()
 	}
 	flag.Parse()
 	if flag.NArg() != 2 {

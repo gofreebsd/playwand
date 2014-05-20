@@ -27,32 +27,41 @@ type hello struct {
 	imgShm     shm.Object
 	imgMap     gommap.MMap
 
-	c       proto.Conn
-	id, did proto.ObjectId
+	c *proto.Conn
 
-	registryId              proto.ObjectId
-	shmId, shmPoolId        proto.ObjectId
-	compositorId, surfaceId proto.ObjectId
-	shellId, shellSurfaceId proto.ObjectId
-	bufferId                proto.ObjectId
+	wlClient wayland.Client
 
-	globals    []*wayland.RegistryGlobalEvent
+	display    wayland.ClientDisplay
+	registry   wayland.ClientRegistry
+	shm        wayland.ClientShm
+	shmPool    wayland.ClientShmPool
+	compositor wayland.ClientCompositor
+	surface    wayland.ClientSurface
+	buffer     wayland.ClientBuffer
+
+	xdgClient    xdg_shell.Client
+	shell        xdg_shell.ClientXdgShell
+	shellSurface xdg_shell.ClientXdgSurface
+
+	//registryId              proto.ObjectId
+	//shmId, shmPoolId        proto.ObjectId
+	//compositorId, surfaceId proto.ObjectId
+	//shellId, shellSurfaceId proto.ObjectId
+	//bufferId                proto.ObjectId
+
+	globals    []wayland.RegistryGlobalEvent
 	shmFormats []uint32
 }
 
-func newHello(c proto.Conn, imgPath string) *hello {
-	return &hello{
-		imgPath: imgPath,
-		c:       c,
-		did:     1,
-		id:      2,
+func newHello(c *proto.Conn, imgPath string) *hello {
+	h := &hello{
+		imgPath:   imgPath,
+		c:         c,
+		wlClient:  wayland.NewClient(c),
+		xdgClient: xdg_shell.NewClient(c),
 	}
-}
-
-func (h *hello) nextId() (id proto.ObjectId) {
-	id = h.id
-	h.id++
-	return
+	h.display = h.wlClient.NewDisplay(h)
+	return h
 }
 
 func (h *hello) String() string {
@@ -60,16 +69,26 @@ func (h *hello) String() string {
 	fmt.Fprintf(b, "Hello Wayland!\n")
 	fmt.Fprintf(b, "\timage: '%s'\n", h.imgPath)
 	fmt.Fprintf(b, "objects:\n")
-	fmt.Fprintf(b, "\tregistry: %d\n", h.registryId)
-	fmt.Fprintf(b, "\tshm: %d\n", h.shmId)
-	fmt.Fprintf(b, "\tshm_pool: %d\n", h.shmPoolId)
-	fmt.Fprintf(b, "\tcompositor: %d\n", h.compositorId)
-	fmt.Fprintf(b, "\tsurface: %d\n", h.surfaceId)
-	fmt.Fprintf(b, "\tshell: %d\n", h.shellId)
-	fmt.Fprintf(b, "\tshellSurface: %d\n", h.shellSurfaceId)
-	fmt.Fprintf(b, "\tbuffer: %d\n", h.bufferId)
+	fmt.Fprintf(b, "\tregistry: %d\n", h.registry.Id())
+	fmt.Fprintf(b, "\tshm: %d\n", h.shm.Id())
+	fmt.Fprintf(b, "\tshm_pool: %d\n", h.shmPool.Id())
+	fmt.Fprintf(b, "\tcompositor: %d\n", h.compositor.Id())
+	fmt.Fprintf(b, "\tsurface: %d\n", h.surface.Id())
+	fmt.Fprintf(b, "\tshell: %d\n", h.shell.Id())
+	fmt.Fprintf(b, "\tshellSurface: %d\n", h.shellSurface.Id())
+	fmt.Fprintf(b, "\tbuffer: %d\n", h.buffer.Id())
 
 	return b.String()
+}
+
+// wayland.Display events
+func (h *hello) Error(m wayland.DisplayErrorEvent) error {
+	return errgo.New("Display error: %s", m.Message)
+}
+
+func (h *hello) DeleteId(m wayland.DisplayDeleteIdEvent) error {
+	h.c.DeleteObject(proto.ObjectId(m.Id))
+	return nil
 }
 
 func (h *hello) Go() error {
@@ -151,88 +170,33 @@ func (h *hello) loadImage() error {
 }
 
 func (h *hello) getRegistry() error {
-	h.registryId = h.nextId()
-	getRegistry := &wayland.DisplayGetRegistryRequest{Registry: h.registryId}
-	mGetRegistry := h.did.NewMessage(1)
-	if err := getRegistry.Marshal(mGetRegistry); err != nil {
-		return errgo.Trace(err)
-	}
-	if err := h.c.WriteMessage(mGetRegistry); err != nil {
+	h.registry = h.wlClient.NewRegistry(h)
+	if err := h.display.GetRegistry(h.registry.Id()); err != nil {
 		return errgo.Trace(err)
 	}
 
-	cbid := h.nextId()
-	if err := h.sync(cbid); err != nil {
+	if err := h.sync(); err != nil {
 		return errgo.Trace(err)
 	}
 
-cb:
-	for {
-		m, err := h.c.ReadMessage()
-		if err != nil {
-			return errgo.Trace(err)
-		}
+	return nil
+}
 
-		switch {
-		case m.Object() == h.did && m.Opcode() == 0:
-			e := new(wayland.DisplayErrorEvent)
-			if err := e.Unmarshal(m); err != nil {
-				return errgo.Trace(err)
-			}
-			return errgo.New("%s", e.Message)
+// wayland.Registry events
+func (h *hello) Global(g wayland.RegistryGlobalEvent) error {
+	h.globals = append(h.globals, g)
+	return nil
+}
 
-		case m.Object() == h.registryId && m.Opcode() == 0:
-			global := new(wayland.RegistryGlobalEvent)
-			if err := global.Unmarshal(m); err != nil {
-				return errgo.Trace(err)
-			}
-			h.globals = append(h.globals, global)
-
-		case m.Object() == cbid:
-			break cb
-		}
-	}
-
-	// deleteId
-	m, err := h.c.ReadMessage()
-	if err != nil {
-		return errgo.Trace(err)
-	}
-
-	switch {
-	case m.Object() == h.did && m.Opcode() == 0:
-		e := new(wayland.DisplayErrorEvent)
-		if err := e.Unmarshal(m); err != nil {
-			return errgo.Trace(err)
-		}
-		return errgo.New("%s", e.Message)
-
-	case m.Object() == h.did && m.Opcode() == 1:
-		d := new(wayland.DisplayDeleteIdEvent)
-		if err := d.Unmarshal(m); err != nil {
-			return errgo.Trace(err)
-		}
-		if proto.ObjectId(d.Id) != cbid {
-			return errgo.New("unexpected message: %+v", d)
-		}
-
-	default:
-		return errgo.New("unexpected message: %s", m)
-	}
-
+func (h *hello) GlobalRemove(_ wayland.RegistryGlobalRemoveEvent) error {
 	return nil
 }
 
 func (h *hello) bindCompositor() error {
 	for _, g := range h.globals {
 		if g.Interface == "wl_compositor" {
-			h.compositorId = h.nextId()
-			bind := &wayland.RegistryBindRequest{Name: g.Name, Interface: g.Interface, Version: g.Version, Id: h.compositorId}
-			mBind := h.registryId.NewMessage(0)
-			if err := bind.Marshal(mBind); err != nil {
-				return errgo.Trace(err)
-			}
-			if err := h.c.WriteMessage(mBind); err != nil {
+			h.compositor = h.wlClient.NewCompositor(h)
+			if err := h.registry.Bind(g.Name, g.Interface, g.Version, h.compositor.Id()); err != nil {
 				return errgo.Trace(err)
 			}
 
@@ -243,305 +207,183 @@ func (h *hello) bindCompositor() error {
 }
 
 func (h *hello) createSurface() error {
-	h.surfaceId = h.nextId()
-	createSurface := &wayland.CompositorCreateSurfaceRequest{Id: h.surfaceId}
-	m := h.compositorId.NewMessage(0)
-	if err := createSurface.Marshal(m); err != nil {
-		return errgo.Trace(err)
-	}
-	if err := h.c.WriteMessage(m); err != nil {
+	h.surface = h.wlClient.NewSurface(h)
+	if err := h.compositor.CreateSurface(h.surface.Id()); err != nil {
 		return errgo.Trace(err)
 	}
 	return nil
 }
 
+// wayland.Surface events
+func (h *hello) Enter(_ wayland.SurfaceEnterEvent) error {
+	return nil
+}
+
+func (h *hello) Leave(_ wayland.SurfaceLeaveEvent) error {
+	return nil
+}
+
 func (h *hello) createShellSurface() error {
+	// bind xdg_shell
 	for _, g := range h.globals {
 		if g.Interface == "xdg_shell" {
-			h.shellId = h.nextId()
-			bind := &wayland.RegistryBindRequest{Name: g.Name, Interface: g.Interface, Version: g.Version, Id: h.shellId}
-			m := h.registryId.NewMessage(0)
-			if err := bind.Marshal(m); err != nil {
-				return errgo.Trace(err)
-			}
-			if err := h.c.WriteMessage(m); err != nil {
+			h.shell = h.xdgClient.NewXdgShell(h)
+			if err := h.registry.Bind(g.Name, g.Interface, g.Version, h.shell.Id()); err != nil {
 				return errgo.Trace(err)
 			}
 
-			goto create_shell
+			goto bound
 		}
 	}
 	return errgo.New("no xdg_shell global found")
 
-create_shell:
-	// use unstable version
-	useUnstableVersion := &xdg_shell.XdgShellUseUnstableVersionRequest{Version: 3}
-	m := h.shellId.NewMessage(0)
-	if err := useUnstableVersion.Marshal(m); err != nil {
-		return errgo.Trace(err)
-	}
-	if err := h.c.WriteMessage(m); err != nil {
+bound:
+	if err := h.shell.UseUnstableVersion(3); err != nil {
 		return errgo.Trace(err)
 	}
 
-	// sync
-	cbid := h.nextId()
-	if err := h.sync(cbid); err != nil {
+	if err := h.sync(); err != nil {
 		return errgo.Trace(err)
 	}
 
-	m, err := h.c.ReadMessage()
-	if err != nil {
+	// create shell surface
+	h.shellSurface = h.xdgClient.NewXdgSurface(h)
+	if err := h.shell.GetXdgSurface(h.shellSurface.Id(), h.surface.Id()); err != nil {
 		return errgo.Trace(err)
 	}
 
-	switch {
-	case m.Object() == h.did && m.Opcode() == 0:
-		e := new(wayland.DisplayErrorEvent)
-		if err := e.Unmarshal(m); err != nil {
-			return errgo.Trace(err)
-		}
-		return errgo.New("%s", e.Message)
-
-	case m.Object() == cbid:
-		break
-
-	default:
-		return errgo.New("unexpected message: %s", m)
-	}
-
-	// deleteId for cbid
-	m, err = h.c.ReadMessage()
-	if err != nil {
+	// set title
+	if err := h.shellSurface.SetTitle("hello"); err != nil {
 		return errgo.Trace(err)
 	}
 
-	switch {
-	case m.Object() == h.did && m.Opcode() == 0:
-		e := new(wayland.DisplayErrorEvent)
-		if err := e.Unmarshal(m); err != nil {
-			return errgo.Trace(err)
-		}
-		return errgo.New("%s", e.Message)
+	return nil
+}
 
-	case m.Object() == h.did && m.Opcode() == 1:
-		d := new(wayland.DisplayDeleteIdEvent)
-		if err := d.Unmarshal(m); err != nil {
-			return errgo.Trace(err)
-		}
-		if proto.ObjectId(d.Id) != cbid {
-			return errgo.New("unexpected message: %+v", d)
-		}
-
-	default:
-		return errgo.New("unexpected message: %s", m)
-	}
-
-	h.shellSurfaceId = h.nextId()
-	createShellSurface := &xdg_shell.XdgShellGetXdgSurfaceRequest{h.shellSurfaceId, h.surfaceId}
-	m = h.shellId.NewMessage(1)
-	if err := createShellSurface.Marshal(m); err != nil {
+// xdg_shell.Shell events
+func (h *hello) Ping(m xdg_shell.XdgShellPingEvent) error {
+	if err := h.shell.Pong(m.Serial); err != nil {
 		return errgo.Trace(err)
 	}
-	if err := h.c.WriteMessage(m); err != nil {
-		return errgo.Trace(err)
-	}
+	return nil
+}
 
-	setTitle := &xdg_shell.XdgSurfaceSetTitleRequest{Title: "hello"}
-	m = h.shellSurfaceId.NewMessage(3)
-	if err := setTitle.Marshal(m); err != nil {
-		return errgo.Trace(err)
-	}
-	if err := h.c.WriteMessage(m); err != nil {
-		return errgo.Trace(err)
-	}
+// xdg_shell.ShellSurface events
+func (h *hello) Activated(_ xdg_shell.XdgSurfaceActivatedEvent) error {
+	return nil
+}
 
+func (h *hello) ChangeState(_ xdg_shell.XdgSurfaceChangeStateEvent) error {
+	return nil
+}
+
+func (h *hello) Close(_ xdg_shell.XdgSurfaceCloseEvent) error {
+	return nil
+}
+
+func (h *hello) Configure(_ xdg_shell.XdgSurfaceConfigureEvent) error {
+	return nil
+}
+
+func (h *hello) Deactivated(_ xdg_shell.XdgSurfaceDeactivatedEvent) error {
 	return nil
 }
 
 func (h *hello) bindShm() error {
 	for _, g := range h.globals {
 		if g.Interface == "wl_shm" {
-			h.shmId = h.nextId()
-			bind := &wayland.RegistryBindRequest{Name: g.Name, Interface: g.Interface, Version: g.Version, Id: h.shmId}
-			mBind := h.registryId.NewMessage(0)
-			if err := bind.Marshal(mBind); err != nil {
+			h.shm = h.wlClient.NewShm(h)
+			if err := h.registry.Bind(g.Name, g.Interface, g.Version, h.shm.Id()); err != nil {
 				return errgo.Trace(err)
 			}
-			if err := h.c.WriteMessage(mBind); err != nil {
-				return errgo.Trace(err)
-			}
-
 			goto formats
 		}
 	}
 	return errgo.New("no wl_shm global found")
 
 formats:
-	// sync and collect shm formats
-	cbid := h.nextId()
-	if err := h.sync(cbid); err != nil {
+	// collect shm formats
+	if err := h.sync(); err != nil {
 		return errgo.Trace(err)
 	}
-
-formats_loop:
-	for {
-		m, err := h.c.ReadMessage()
-		if err != nil {
-			return errgo.Trace(err)
-		}
-
-		switch {
-		case m.Object() == h.did && m.Opcode() == 0:
-			e := new(wayland.DisplayErrorEvent)
-			if err := e.Unmarshal(m); err != nil {
-				return errgo.Trace(err)
-			}
-			return errgo.New("%s", e.Message)
-
-		case m.Object() == h.shmId && m.Opcode() == 0:
-			f := new(wayland.ShmFormatEvent)
-			if err := f.Unmarshal(m); err != nil {
-				return errgo.Trace(err)
-			}
-			h.shmFormats = append(h.shmFormats, f.Format)
-
-		case m.Object() == cbid:
-			break formats_loop
-
-		default:
-			return errgo.New("unexpected message: %s", m)
-		}
-	}
-
-	// deleteId for cbid
-	m, err := h.c.ReadMessage()
-	if err != nil {
-		return errgo.Trace(err)
-	}
-
-	switch {
-	case m.Object() == h.did && m.Opcode() == 0:
-		e := new(wayland.DisplayErrorEvent)
-		if err := e.Unmarshal(m); err != nil {
-			return errgo.Trace(err)
-		}
-		return errgo.New("%s", e.Message)
-
-	case m.Object() == h.did && m.Opcode() == 1:
-		d := new(wayland.DisplayDeleteIdEvent)
-		if err := d.Unmarshal(m); err != nil {
-			return errgo.Trace(err)
-		}
-		if proto.ObjectId(d.Id) != cbid {
-			return errgo.New("unexpected message: %+v", d)
-		}
-
-	default:
-		return errgo.New("unexpected message: %s", m)
-	}
-
 	return nil
+}
 
+// wayland.Shm events
+func (h *hello) Format(_ wayland.ShmFormatEvent) error {
+	return nil
 }
 
 func (h *hello) createShmPool() error {
-	h.shmPoolId = h.nextId()
-	createPool := &wayland.ShmCreatePoolRequest{Id: h.shmPoolId, Fd: h.imgShm.Fd(), Size: int32(len(h.imgMap))}
-	m := h.shmId.NewMessage(0)
-	if err := createPool.Marshal(m); err != nil {
-		return errgo.Trace(err)
-	}
-	if err := h.c.WriteMessage(m); err != nil {
+	h.shmPool = h.wlClient.NewShmPool(h)
+	if err := h.shm.CreatePool(h.shmPool.Id(), h.imgShm.Fd(), int32(len(h.imgMap))); err != nil {
 		return errgo.Trace(err)
 	}
 	return nil
 }
 
 func (h *hello) createBuffer() error {
-	h.bufferId = h.nextId()
-	createBuffer := &wayland.ShmPoolCreateBufferRequest{
-		Id:     h.bufferId,
-		Offset: 0,
-		Width:  h.imgW,
-		Height: h.imgH,
-		Stride: h.imgW * 4,
-		Format: 0,
-	}
-	m := h.shmPoolId.NewMessage(0)
-	if err := createBuffer.Marshal(m); err != nil {
-		return errgo.Trace(err)
-	}
-	if err := h.c.WriteMessage(m); err != nil {
+	h.buffer = h.wlClient.NewBuffer(h)
+	if err := h.shmPool.CreateBuffer(
+		h.buffer.Id(), // Id
+		0,             // Offset
+		h.imgW,        // Width
+		h.imgH,        // Height
+		h.imgW*4,      // Stride
+		0,             // Format
+	); err != nil {
 		return errgo.Trace(err)
 	}
 	return nil
 }
 
+// wayland.Buffer events
+func (h *hello) Release(m wayland.BufferReleaseEvent) error {
+	return nil
+}
+
 func (h *hello) attach() error {
-	attach := &wayland.SurfaceAttachRequest{
-		Buffer: h.bufferId,
-		X:      0,
-		Y:      0,
-	}
-	ma := h.surfaceId.NewMessage(1)
-	if err := attach.Marshal(ma); err != nil {
+	if err := h.surface.Attach(h.buffer.Id(), 0, 0); err != nil {
 		return errgo.Trace(err)
 	}
-	if err := h.c.WriteMessage(ma); err != nil {
+	if err := h.surface.Damage(0, 0, h.imgW, h.imgH); err != nil {
 		return errgo.Trace(err)
 	}
-
-	dmg := &wayland.SurfaceDamageRequest{
-		X: 0, Y: 0,
-		Width: h.imgW, Height: h.imgH,
-	}
-	md := h.surfaceId.NewMessage(2)
-	if err := dmg.Marshal(md); err != nil {
+	if err := h.surface.Commit(); err != nil {
 		return errgo.Trace(err)
 	}
-	if err := h.c.WriteMessage(md); err != nil {
-		return errgo.Trace(err)
-	}
-
-	mcommit := h.surfaceId.NewMessage(6)
-	if err := h.c.WriteMessage(mcommit); err != nil {
-		return errgo.Trace(err)
-	}
-
 	return nil
 }
 
 func (h *hello) loop() error {
 	for {
-		m, err := h.c.ReadMessage()
-		if err != nil {
+		if err := h.c.Next(); err != nil {
 			return errgo.Trace(err)
-		}
-
-		switch {
-		case m.Object() == h.did:
-			if m.Opcode() == 0 {
-				e := new(wayland.DisplayErrorEvent)
-				if err := e.Unmarshal(m); err != nil {
-					return errgo.Trace(err)
-				}
-				return errgo.New("Display Error: %s", e.Message)
-			}
-
-		default:
-			log.Println(m)
 		}
 	}
 }
 
-func (h *hello) sync(id proto.ObjectId) error {
-	sync := &wayland.DisplaySyncRequest{Callback: id}
-	mSync := h.did.NewMessage(0)
-	if err := sync.Marshal(mSync); err != nil {
+type callback struct {
+	done bool
+}
+
+func (cb *callback) Done(_ wayland.CallbackDoneEvent) error {
+	cb.done = true
+	return nil
+}
+
+func (h *hello) sync() error {
+	cb := new(callback)
+	scb := h.wlClient.NewCallback(cb)
+	if err := h.display.Sync(scb.Id()); err != nil {
 		return errgo.Trace(err)
 	}
-	return h.c.WriteMessage(mSync)
+	for !cb.done {
+		if err := h.c.Next(); err != nil {
+			return errgo.Trace(err)
+		}
+	}
+	return nil
 }
 
 func main() {

@@ -16,6 +16,18 @@ func NewClient(c *proto.Conn) Client {
 
 
 {{range .Interfaces}}
+
+{{$iname := .Name}}
+{{range .Enums}}
+{{$ename := .Name}}
+type {{Exported $iname $ename}} uint32
+const (
+{{range .Entries}}
+	{{Const $iname $ename .Name}} {{Exported $iname $ename}} = {{.Value}}
+{{end}}
+)
+{{end}}
+
 {{$interfaceName := Exported .Name}}
 
 type Client{{$interfaceName}}Implementation interface {

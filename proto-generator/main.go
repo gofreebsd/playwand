@@ -32,7 +32,7 @@ type Interface struct {
 
 	Requests []Message `xml:"request"`
 	Events   []Message `xml:"event"`
-	//Errors   []Error   `xml:"error"`
+	Enums    []Enum    `xml:"enum"`
 }
 
 func (i *Interface) analyze() {
@@ -66,6 +66,17 @@ type Arg struct {
 	Interface string `xml:"interface,attr"`
 }
 
+type Enum struct {
+	Name    string      `xml:"name,attr"`
+	Entries []EnumEntry `xml:"entry"`
+}
+
+type EnumEntry struct {
+	Name    string `xml:"name,attr"`
+	Value   uint32 `xml:"value,attr"`
+	Summary string `xml:"summary,attr"`
+}
+
 var typemap = map[string][2]string{
 	"new_id": {"ObjectId", "proto.ObjectId"},
 	"object": {"ObjectId", "proto.ObjectId"},
@@ -95,6 +106,12 @@ var funcs = template.FuncMap{
 			name = "err"
 		}
 		return name
+	},
+	"Const": func(parts ...string) string {
+		for i := range parts {
+			parts[i] = strings.ToTitle(parts[i])
+		}
+		return strings.Join(parts, "_")
 	},
 	"GoType": func(typename string) string {
 		t, ok := typemap[typename]

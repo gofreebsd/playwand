@@ -21,6 +21,12 @@ import (
 	"github.com/vasiliyl/playwand/shm"
 )
 
+type global struct {
+	Name      uint32
+	Interface string
+	Version   uint32
+}
+
 type hello struct {
 	imgPath    string
 	imgW, imgH int32
@@ -49,7 +55,7 @@ type hello struct {
 	//shellId, shellSurfaceId proto.ObjectId
 	//bufferId                proto.ObjectId
 
-	globals    []wayland.RegistryGlobalEvent
+	globals    []global
 	shmFormats []uint32
 }
 
@@ -82,12 +88,12 @@ func (h *hello) String() string {
 }
 
 // wayland.Display events
-func (h *hello) Error(m wayland.DisplayErrorEvent) error {
-	return errgo.New("Display error: %s", m.Message)
+func (h *hello) Error(_ proto.ObjectId, _ uint32, msg string) error {
+	return errgo.New("Display error: %s", msg)
 }
 
-func (h *hello) DeleteId(m wayland.DisplayDeleteIdEvent) error {
-	h.c.DeleteObject(proto.ObjectId(m.Id))
+func (h *hello) DeleteId(id uint32) error {
+	h.c.DeleteObject(proto.ObjectId(id))
 	return nil
 }
 
@@ -183,12 +189,12 @@ func (h *hello) getRegistry() error {
 }
 
 // wayland.Registry events
-func (h *hello) Global(g wayland.RegistryGlobalEvent) error {
-	h.globals = append(h.globals, g)
+func (h *hello) Global(name uint32, interface_ string, version uint32) error {
+	h.globals = append(h.globals, global{name, interface_, version})
 	return nil
 }
 
-func (h *hello) GlobalRemove(_ wayland.RegistryGlobalRemoveEvent) error {
+func (h *hello) GlobalRemove(_ uint32) error {
 	return nil
 }
 
@@ -215,11 +221,11 @@ func (h *hello) createSurface() error {
 }
 
 // wayland.Surface events
-func (h *hello) Enter(_ wayland.SurfaceEnterEvent) error {
+func (h *hello) Enter(_ proto.ObjectId) error {
 	return nil
 }
 
-func (h *hello) Leave(_ wayland.SurfaceLeaveEvent) error {
+func (h *hello) Leave(_ proto.ObjectId) error {
 	return nil
 }
 
@@ -261,31 +267,31 @@ bound:
 }
 
 // xdg_shell.Shell events
-func (h *hello) Ping(m xdg_shell.ShellPingEvent) error {
-	if err := h.shell.Pong(m.Serial); err != nil {
+func (h *hello) Ping(serial uint32) error {
+	if err := h.shell.Pong(serial); err != nil {
 		return errgo.Trace(err)
 	}
 	return nil
 }
 
 // xdg_shell.ShellSurface events
-func (h *hello) Activated(_ xdg_shell.SurfaceActivatedEvent) error {
+func (h *hello) Activated() error {
 	return nil
 }
 
-func (h *hello) ChangeState(_ xdg_shell.SurfaceChangeStateEvent) error {
+func (h *hello) ChangeState(_, _, _ uint32) error {
 	return nil
 }
 
-func (h *hello) Close(_ xdg_shell.SurfaceCloseEvent) error {
+func (h *hello) Close() error {
 	return nil
 }
 
-func (h *hello) Configure(_ xdg_shell.SurfaceConfigureEvent) error {
+func (h *hello) Configure(_, _ int32) error {
 	return nil
 }
 
-func (h *hello) Deactivated(_ xdg_shell.SurfaceDeactivatedEvent) error {
+func (h *hello) Deactivated() error {
 	return nil
 }
 
@@ -310,7 +316,7 @@ formats:
 }
 
 // wayland.Shm events
-func (h *hello) Format(_ wayland.ShmFormatEvent) error {
+func (h *hello) Format(_ uint32) error {
 	return nil
 }
 
@@ -338,7 +344,7 @@ func (h *hello) createBuffer() error {
 }
 
 // wayland.Buffer events
-func (h *hello) Release(m wayland.BufferReleaseEvent) error {
+func (h *hello) Release() error {
 	return nil
 }
 
@@ -367,7 +373,7 @@ type callback struct {
 	done bool
 }
 
-func (cb *callback) Done(_ wayland.CallbackDoneEvent) error {
+func (cb *callback) Done(_ uint32) error {
 	cb.done = true
 	return nil
 }

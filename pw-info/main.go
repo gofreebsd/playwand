@@ -10,6 +10,17 @@ import (
 	"github.com/vasiliyl/playwand/proto/wayland"
 )
 
+type global struct {
+	Name      uint32
+	Interface string
+	Version   uint32
+}
+
+type geometry struct {
+	X, Y int32
+	W, H int32
+}
+
 type info struct {
 	c *proto.Conn
 
@@ -19,8 +30,8 @@ type info struct {
 	registry wayland.ClientRegistry
 	output   wayland.ClientOutput
 
-	globals    []wayland.RegistryGlobalEvent
-	geometries []wayland.OutputGeometryEvent
+	globals    []global
+	geometries []geometry
 }
 
 func newInfo(c *proto.Conn) *info {
@@ -49,19 +60,19 @@ func (i *info) Print() {
 		fmt.Printf("interface: '%s', version: %d, name: %d\n", g.Interface, g.Version, g.Name)
 		if g.Interface == "wl_output" {
 			for _, g := range i.geometries {
-				fmt.Printf("\tx: %d, y: %d\n\twidth: %d mm, height: %d mm\n", g.X, g.Y, g.PhysicalWidth, g.PhysicalHeight)
+				fmt.Printf("\tx: %d, y: %d\n\twidth: %d mm, height: %d mm\n", g.X, g.Y, g.W, g.H)
 			}
 		}
 	}
 }
 
 // wayland.Display events
-func (i *info) Error(m wayland.DisplayErrorEvent) error {
-	return errgo.New("Display error: %s", m.Message)
+func (i *info) Error(_ proto.ObjectId, _ uint32, msg string) error {
+	return errgo.New("Display error: %s", msg)
 }
 
-func (i *info) DeleteId(m wayland.DisplayDeleteIdEvent) error {
-	i.c.DeleteObject(proto.ObjectId(m.Id))
+func (i *info) DeleteId(id uint32) error {
+	i.c.DeleteObject(proto.ObjectId(id))
 	return nil
 }
 
@@ -79,17 +90,17 @@ func (i *info) getRegistry() error {
 }
 
 // wayland.Registry events
-func (i *info) Global(g wayland.RegistryGlobalEvent) error {
-	i.globals = append(i.globals, g)
+func (i *info) Global(name uint32, interface_ string, version uint32) error {
+	i.globals = append(i.globals, global{Name: name, Interface: interface_, Version: version})
 	return nil
 }
 
-func (i *info) GlobalRemove(_ wayland.RegistryGlobalRemoveEvent) error {
+func (i *info) GlobalRemove(_ uint32) error {
 	return nil
 }
 
 func (i *info) bindOutput() error {
-	var og wayland.RegistryGlobalEvent
+	var og global
 	for _, g := range i.globals {
 		if g.Interface == "wl_output" {
 			og = g
@@ -112,20 +123,20 @@ bind:
 }
 
 // wayland.Output events
-func (i *info) Geometry(g wayland.OutputGeometryEvent) error {
-	i.geometries = append(i.geometries, g)
+func (i *info) Geometry(x, y, w, h int32, _ int32, _, _ string, _ int32) error {
+	i.geometries = append(i.geometries, geometry{})
 	return nil
 }
 
-func (i *info) Mode(_ wayland.OutputModeEvent) error {
+func (i *info) Mode(_ uint32, _, _, _ int32) error {
 	return nil
 }
 
-func (i *info) Done(_ wayland.OutputDoneEvent) error {
+func (i *info) Done() error {
 	return nil
 }
 
-func (i *info) Scale(_ wayland.OutputScaleEvent) error {
+func (i *info) Scale(_ int32) error {
 	return nil
 }
 
@@ -133,7 +144,7 @@ type callback struct {
 	done bool
 }
 
-func (cb *callback) Done(_ wayland.CallbackDoneEvent) error {
+func (cb *callback) Done(_ uint32) error {
 	cb.done = true
 	return nil
 }

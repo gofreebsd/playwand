@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"log"
 	"net"
 	"os"
 	"path"
@@ -160,7 +159,10 @@ func (c *Conn) WriteMessage(m *Message) (err error) {
 	if err = c.writeHeader(m.object, m.opcode, uint16(m.p.Len())); err != nil {
 		return
 	}
-	oob := syscall.UnixRights(m.fds...)
+	var oob []byte
+	if len(m.fds) != 0 {
+		oob = syscall.UnixRights(m.fds...)
+	}
 	_, _, err = c.c.WriteMsgUnix(m.p.Bytes(), oob, nil)
 	return
 }
@@ -185,11 +187,13 @@ func (c *Conn) Next() error {
 		return err
 	}
 
+	return c.Dispatch(m)
+}
+
+func (c *Conn) Dispatch(m *Message) error {
 	if obj, ok := c.objects[m.Object()]; ok {
 		return obj.Handle(m)
 	}
-
-	log.Printf("%s", m)
 
 	return fmt.Errorf("Object %d is not registered", m.Object())
 }

@@ -24,11 +24,16 @@ func NewServer(c *proto.Conn) Server {
 
 {{range .Interfaces}}
 
+{{Exported .Name | Comment}}
+{{Comment .Description}}
+
 {{$iname := .Name}}
 {{range .Enums}}
 {{$ename := .Name}}
+{{Comment .Description}}
 const (
 {{range .Entries}}
+	{{Comment .Summary}}
 	{{Const $iname $ename .Name}} = {{.Value}}
 {{end}}
 )
@@ -39,6 +44,7 @@ const (
 {{/* CLIENT */}}
 type Client{{$interfaceName}}Implementation interface {
 	{{range .Events}}
+	{{Comment .Description}}
 	{{Exported .Name}}({{range .Args}}{{Unexported .Name}} {{GoType .Type}},{{end}}) error
 	{{end}}
 }
@@ -86,6 +92,7 @@ func (o Client{{$interfaceName}}) Handle(m *proto.Message) (err error) {
 }
 
 {{range .Requests}}
+{{Comment .Description}}
 func (o Client{{$interfaceName}}) {{Exported .Name}}({{range .Args}}{{Unexported .Name}} {{GoType .Type}}, {{end}}) error {
 	m := proto.NewMessage(o.id, {{.Opcode}})
 	{{range .Args}}
@@ -100,6 +107,7 @@ func (o Client{{$interfaceName}}) {{Exported .Name}}({{range .Args}}{{Unexported
 {{/* SERVER */}}
 type Server{{$interfaceName}}Implementation interface {
 	{{range .Requests}}
+	{{Comment .Description}}
 	{{Exported .Name}}({{range .Args}}{{Unexported .Name}} {{GoType .Type}},{{end}}) error
 	{{end}}
 }
@@ -147,6 +155,7 @@ func (o Server{{$interfaceName}}) Handle(m *proto.Message) (err error) {
 }
 
 {{range .Events}}
+{{Comment .Description}}
 func (o Server{{$interfaceName}}) {{Exported .Name}}({{range .Args}}{{Unexported .Name}} {{GoType .Type}}, {{end}}) error {
 	m := proto.NewMessage(o.id, {{.Opcode}})
 	{{range .Args}}
@@ -157,7 +166,5 @@ func (o Server{{$interfaceName}}) {{Exported .Name}}({{range .Args}}{{Unexported
 	return o.c.WriteMessage(m)
 }
 {{end}}
-
-
 
 {{end}}

@@ -67,8 +67,9 @@ type Arg struct {
 }
 
 type Enum struct {
-	Name    string      `xml:"name,attr"`
-	Entries []EnumEntry `xml:"entry"`
+	Name        string      `xml:"name,attr"`
+	Description string      `xml:"description"`
+	Entries     []EnumEntry `xml:"entry"`
 }
 
 type EnumEntry struct {
@@ -112,6 +113,13 @@ var funcs = template.FuncMap{
 			parts[i] = strings.ToTitle(parts[i])
 		}
 		return strings.Join(parts, "_")
+	},
+	"Comment": func(text string) string {
+		lines := strings.Split(text, "\n")
+		for i := range lines {
+			lines[i] = "// " + strings.TrimSpace(lines[i])
+		}
+		return strings.Join(lines, "\n")
 	},
 	"GoType": func(typename string) string {
 		t, ok := typemap[typename]

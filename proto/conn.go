@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"path"
@@ -115,6 +116,8 @@ func (c *Conn) ReadMessage() (m *Message, err error) {
 		return
 	}
 
+	log.Printf("ReadMessage: header = %s", h)
+
 	m = &Message{
 		object: h.object(),
 		opcode: h.opcode(),
@@ -125,7 +128,7 @@ func (c *Conn) ReadMessage() (m *Message, err error) {
 	}
 
 	p := make([]byte, h.size())
-	oob := make([]byte, 16)
+	oob := make([]byte, 32)
 	n, oobn, _, _, err := c.c.ReadMsgUnix(p, oob)
 	if err != nil {
 		return
@@ -134,6 +137,8 @@ func (c *Conn) ReadMessage() (m *Message, err error) {
 		err = fmt.Errorf("expected %d bytes, got %d", h.size(), n)
 		return
 	}
+
+	log.Printf("ReadMessage: n = %d, oobn = %d", n, oobn)
 
 	m.p = bytes.NewBuffer(p)
 
@@ -156,14 +161,22 @@ func (c *Conn) ReadMessage() (m *Message, err error) {
 }
 
 func (c *Conn) WriteMessage(m *Message) (err error) {
-	if err = c.writeHeader(m.object, m.opcode, uint16(m.p.Len())); err != nil {
+	var payload []byte
+	if m.p != nil {
+		payload = m.p.Bytes()
+	}
+	if err = c.writeHeader(m.object, m.opcode, uint16(len(payload))); err != nil {
 		return
+	}
+	if len(payload) == 0 {
+		// message without payload wouldn't contain fds, so we can return here
+		return nil
 	}
 	var oob []byte
 	if len(m.fds) != 0 {
 		oob = syscall.UnixRights(m.fds...)
 	}
-	_, _, err = c.c.WriteMsgUnix(m.p.Bytes(), oob, nil)
+	_, _, err = c.c.WriteMsgUnix(payload, oob, nil)
 	return
 }
 

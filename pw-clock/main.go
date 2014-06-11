@@ -387,6 +387,8 @@ var (
 	format = flag.String("format", "03:04:05", "time format; see http://golang.org/pkg/time/#Time.Format")
 	width  = flag.Int("w", 100, "surface width")
 	height = flag.Int("h", 40, "surface height")
+
+	tickDuration = flag.Duration("tick", 1*time.Second, "tick duration")
 )
 
 func main() {
@@ -436,7 +438,7 @@ func main() {
 
 	c, err := newClock(conn, int32(*width), int32(*height), ctx, pt, *format)
 
-	ticker := time.Tick(1 * time.Second)
+	ticker := time.Tick(*tickDuration)
 
 	wlMsg := make(chan *proto.Message)
 	wlErr := make(chan error, 1)

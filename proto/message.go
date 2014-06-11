@@ -44,7 +44,7 @@ func (m *Message) String() string {
 		bytes = m.p.Bytes()[:len]
 	}
 
-	return fmt.Sprintf("Message{obj:%d, opcode:%d, payload(%d): %+v}", m.object, m.opcode, len, bytes)
+	return fmt.Sprintf("Message{obj:%d, opcode:%d, fds: %+v, payload(%d): %+v}", m.object, m.opcode, m.fds, len, bytes)
 }
 
 func (m *Message) ReadInt() (v int32, err error) {
